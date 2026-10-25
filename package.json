@@ -1,0 +1,14 @@
+{
+  "name": "hotelpro-complete-solution",
+  "version": "1.0.0",
+  "description": "HotelPro - Complete Hotel Booking & Management Solution (MERN Stack)",
+  "scripts": {
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "seed": "cd server && npm run seed",
+    "install-all": "cd server && npm install && cd ../client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
