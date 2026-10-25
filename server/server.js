@@ -2,20 +2,22 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
-const connectDB = require('./config/db');
-const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+const path = require('path');
+const fs = require('fs');
+const { connectDB } = require('./config/db');
+const { errorHandler } = require('./middleware/errorMiddleware');
 
-// Load env vars
+// Load environment variables
 dotenv.config();
 
-// Connect to MongoDB
+// Initialize MongoDB connection (falls back to resilient memory store if offline)
 connectDB();
 
 const app = express();
 
-// Middleware
+// Global Middleware
 app.use(cors({
-  origin: '*', // Allows cross-origin requests from any frontend port or deployment
+  origin: '*',
   credentials: true,
 }));
 app.use(express.json());
@@ -25,7 +27,7 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// Health Check Endpoint
+// Healthcheck Route
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'success',
@@ -34,18 +36,34 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// API Routes
+// Primary API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/rooms', require('./routes/roomRoutes'));
 app.use('/api/bookings', require('./routes/bookingRoutes'));
 app.use('/api/stats', require('./routes/statsRoutes'));
 
-// Error Handling Middleware
-app.use(notFound);
+// Serve Frontend Static Build (Single-Port Turnkey Solution)
+const clientDist = path.join(__dirname, '../client/dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
+// Error Middleware
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`[HotelPro Server Running]: http://localhost:${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`======================================================================`);
+  console.log(`🏨 HotelPro Full-Stack Application is Live!`);
+  console.log(`======================================================================`);
+  console.log(`  ▸ Web Application & API : http://localhost:${PORT}`);
+  console.log(`  ▸ Health Check Endpoint : http://localhost:${PORT}/api/health`);
+  console.log(`  ▸ Demo Admin Login      : admin@hotelpro.com / admin123`);
+  console.log(`  ▸ Demo Guest Login      : guest@hotelpro.com / guest123`);
+  console.log(`======================================================================`);
 });

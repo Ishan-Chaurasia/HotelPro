@@ -1,5 +1,8 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const { isMongooseConnected } = require('../config/db');
+const mockStore = require('../config/mockStore');
 
 const generateToken = (id, role) => {
   return jwt.sign(
@@ -20,30 +23,61 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'Please provide name, email, and password' });
     }
 
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: 'A user with this email already exists' });
-    }
-
-    // Role default is guest unless created by admin or specifically allowed
     const assignedRole = role === 'admin' ? 'admin' : 'guest';
 
-    const user = await User.create({
-      name,
-      email,
-      password,
-      phone: phone || '',
-      role: assignedRole,
-    });
+    if (isMongooseConnected()) {
+      const userExists = await User.findOne({ email });
+      if (userExists) {
+        return res.status(400).json({ message: 'A user with this email already exists' });
+      }
 
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      token: generateToken(user._id, user.role),
-    });
+      const user = await User.create({
+        name,
+        email,
+        password,
+        phone: phone || '',
+        role: assignedRole,
+      });
+
+      return res.status(201).json({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        token: generateToken(user._id, user.role),
+      });
+    } else {
+      // Memory store fallback
+      const userExists = mockStore.users.find(
+        (u) => u.email.toLowerCase() === email.toLowerCase()
+      );
+      if (userExists) {
+        return res.status(400).json({ message: 'A user with this email already exists' });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const newUser = {
+        _id: 'mock_usr_' + Date.now(),
+        name,
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        phone: phone || '',
+        role: assignedRole,
+        createdAt: new Date(),
+      };
+
+      mockStore.users.push(newUser);
+
+      return res.status(201).json({
+        _id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        role: newUser.role,
+        token: generateToken(newUser._id, newUser.role),
+      });
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -60,20 +94,35 @@ const loginUser = async (req, res) => {
       return res.status(400).json({ message: 'Please provide email and password' });
     }
 
-    const user = await User.findOne({ email });
-
-    if (user && (await user.matchPassword(password))) {
-      res.json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        token: generateToken(user._id, user.role),
-      });
+    if (isMongooseConnected()) {
+      const user = await User.findOne({ email });
+      if (user && (await user.matchPassword(password))) {
+        return res.json({
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          token: generateToken(user._id, user.role),
+        });
+      }
     } else {
-      res.status(401).json({ message: 'Invalid email or password' });
+      const user = mockStore.users.find(
+        (u) => u.email.toLowerCase() === email.toLowerCase()
+      );
+      if (user && (await bcrypt.compare(password, user.password))) {
+        return res.json({
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          token: generateToken(user._id, user.role),
+        });
+      }
     }
+
+    return res.status(401).json({ message: 'Invalid email or password' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -84,11 +133,12 @@ const loginUser = async (req, res) => {
 // @access  Private
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    if (isMongooseConnected()) {
+      const user = await User.findById(req.user._id).select('-password');
+      return res.json(user);
+    } else {
+      return res.json(req.user);
     }
-    res.json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -99,8 +149,13 @@ const getMe = async (req, res) => {
 // @access  Private/Admin
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({}).select('-password').sort({ createdAt: -1 });
-    res.json(users);
+    if (isMongooseConnected()) {
+      const users = await User.find({}).select('-password').sort({ createdAt: -1 });
+      return res.json(users);
+    } else {
+      const cleanUsers = mockStore.users.map(({ password, ...rest }) => rest);
+      return res.json(cleanUsers);
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

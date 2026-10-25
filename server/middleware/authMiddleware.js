@@ -1,5 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { isMongooseConnected } = require('../config/db');
+const mockStore = require('../config/mockStore');
 
 const protect = async (req, res, next) => {
   let token;
@@ -14,10 +16,19 @@ const protect = async (req, res, next) => {
         token,
         process.env.JWT_SECRET || 'hotelpro_super_secure_secret_key_2026_jwt_token'
       );
-      req.user = await User.findById(decoded.id).select('-password');
+
+      if (isMongooseConnected()) {
+        req.user = await User.findById(decoded.id).select('-password');
+      } else {
+        const u = mockStore.users.find((user) => user._id.toString() === decoded.id.toString());
+        if (u) {
+          const { password, ...rest } = u;
+          req.user = rest;
+        }
+      }
 
       if (!req.user) {
-        return res.status(401).json({ message: 'User not found' });
+        return res.status(401).json({ message: 'User not found or session expired' });
       }
 
       next();
